@@ -22,6 +22,9 @@ import { startCase } from 'lodash-es';
 @Pipe({ name: 'humanize' })
 export class HumanizePipe implements PipeTransform {
   transform(value: string): string {
+    if (!value) {
+      return value;
+    }
     return startCase(value.replace(/-/g, ' '));
   }
 }

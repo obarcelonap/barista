@@ -18,54 +18,51 @@
 @import '~@dynatrace/fluid-design-tokens/global/spacing';
 
 :host {
-  display: flex;
   width: 100%;
   height: 100%;
-  justify-content: stretch;
 }
 
-fluid-button {
-  --fluid-button--foreground-key: var(--color);
-  --fluid-button--foreground-key-hover: var(--color-dark);
-  --fluid-button--foreground-key-active: var(--color-darker);
+.design-tokens-ui-theme-detail--content {
+  display: flex;
+  justify-content: stretch;
 }
 
 .design-tokens-ui-button-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
 
   :first-child {
     margin-right: $fluid-spacing--medium;
   }
+
+  &.design-tokens-ui-button-header-start {
+    justify-content: flex-start;
+  }
 }
 
-.design-tokens-ui-settings-area {
-  min-width: 436px;
-  padding: 20px;
-  padding-top: 0;
+.design-tokens-ui-area-panel {
+  .design-tokens-ui-button-header {
+    margin-top: -$fluid-spacing--large;
 
-  .design-tokens-ui-setting {
-    display: flex;
-    align-items: center;
-    margin: $fluid-spacing--medium 0;
-    width: 100%;
-    justify-content: space-between;
-
-    input,
-    dt-select {
-      width: 200px;
+    h2 {
+      margin-top: $fluid-spacing--large;
     }
   }
 
-  .design-tokens-ui-settings-label {
-    margin-right: 8px;
-    font-size: 0.8rem;
+  ::ng-deep h2 {
+    margin-top: 0;
   }
+}
+
+.design-tokens-ui-settings-area {
+  min-width: 460px;
+  max-width: 460px;
+  padding: 0 $fluid-spacing--large $fluid-spacing--large 0;
 }
 
 .design-tokens-ui-colors-area {
   width: 100%;
-  margin-top: $fluid-spacing--2x-large + $fluid-spacing--large;
 }
 
 .design-tokens-ui-grouped-buttons .design-tokens-ui-link {
@@ -98,6 +95,10 @@ fluid-button {
     margin: 0 0 $fluid-spacing--medium 0;
   }
 
+  &.design-tokens-ui-palette-link-active .design-tokens-ui-palette-name {
+    font-weight: 700;
+  }
+
   .design-tokens-ui-shades--preview-list {
     display: flex;
     flex-direction: column;
@@ -114,15 +115,15 @@ fluid-button {
   align-items: center;
   justify-content: space-between;
   padding: 0 $fluid-spacing--medium;
-  transition: margin-bottom 200ms ease-out;
+  background-color: white;
   flex-grow: 1;
+  transition: margin-bottom 200ms ease-out;
 
   &:not(:last-of-type) {
     margin-bottom: var(--gap);
   }
 
   .design-tokens-ui-shade-description {
-    line-height: 100%;
     opacity: 0;
     transition: opacity 100ms ease-out;
   }

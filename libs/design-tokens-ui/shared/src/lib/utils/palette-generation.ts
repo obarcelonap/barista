@@ -18,7 +18,15 @@ import {
   FluidPaletteGenerationOptions,
   FluidEasingType,
 } from '@dynatrace/shared/barista-definitions';
-import { easeIn, easeOut, easeInOut } from './math';
+import {
+  easeIn,
+  easeOut,
+  easeInOutQuad,
+  easeInOutCubic,
+  easeInExpo,
+  easeOutExpo,
+  easeInOutExpo,
+} from './math';
 
 /** Applies easing of the given type and alpha to t. */
 export function ease(type: FluidEasingType, alpha: number, t: number): number {
@@ -27,8 +35,16 @@ export function ease(type: FluidEasingType, alpha: number, t: number): number {
       return easeIn(t, alpha);
     case 'ease-out':
       return easeOut(t, alpha);
-    case 'ease-in-out':
-      return easeInOut(t, alpha);
+    case 'ease-in-out-quad':
+      return easeInOutQuad(t);
+    case 'ease-in-out-cubic':
+      return easeInOutCubic(t);
+    case 'ease-in-expo':
+      return easeInExpo(t);
+    case 'ease-out-expo':
+      return easeOutExpo(t);
+    case 'ease-in-out-expo':
+      return easeInOutExpo(t);
   }
 }
 
@@ -64,8 +80,8 @@ export function easeWithOptions(
 export const DEFAULT_GENERATION_OPTIONS: FluidPaletteGenerationOptions = {
   lowerEasing: 'ease-in',
   upperEasing: 'ease-out',
-  lowerExponent: 2,
-  upperExponent: 2,
+  lowerExponent: 1,
+  upperExponent: 1,
   baseContrast: 6,
   minContrast: 1.5,
   maxContrast: 13,

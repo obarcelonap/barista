@@ -16,32 +16,65 @@
 
 import { NgModule, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { RouterModule, Route } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 
 import { DtIconModule } from '@dynatrace/barista-components/icon';
 import { DtSelectModule } from '@dynatrace/barista-components/select';
-import { DtExpandableSectionModule } from '@dynatrace/barista-components/expandable-section';
+import { DtCheckboxModule } from '@dynatrace/barista-components/checkbox';
 
-import { ThemeDetailComponent } from './theme-detail.component';
-import { ColorPickerComponent } from './components/color-picker/color-picker.component';
 import { DesignTokensUiInputModule } from '@dynatrace/design-tokens-ui/input';
-import { DesignTokensUiEasingSettingsModule } from '@dynatrace/design-tokens-ui/easing-settings';
+import { ThemeDetailComponent } from './theme-detail.component';
 import { PipesModule } from '../../pipes';
+import { ColorPickerComponent } from './components/color-picker/color-picker.component';
+import { ThemeSettingsComponent } from './components/theme-settings/theme-settings.component';
+import { PaletteSettingsComponent } from './components/palette-settings/palette-settings.component';
+import { SharedGenerationSettingsComponent } from './components/shared-generation-settings/shared-generation-settings.component';
+import { DistributionCurveComponent } from './components/distribution-curve/distribution-curve.component';
+import { EasingSettingsComponent } from './components/easing-settings/easing-settings.component';
+import { EasingTypeSelectComponent } from './components/easing-type-select/easing-type-select.component';
+import { ThemeDetailGuard } from './theme-detail.guard';
+
+const routes: Route[] = [
+  {
+    path: '',
+    component: ThemeDetailComponent,
+    canActivate: [ThemeDetailGuard],
+    canDeactivate: [ThemeDetailGuard],
+    children: [
+      {
+        path: ':palette',
+        component: PaletteSettingsComponent,
+      },
+      {
+        path: '',
+        component: ThemeSettingsComponent,
+      },
+    ],
+  },
+];
 
 @NgModule({
   imports: [
     CommonModule,
     FormsModule,
-    RouterModule.forChild([{ path: '', component: ThemeDetailComponent }]),
+    RouterModule.forChild(routes),
     DtIconModule,
     DtSelectModule,
-    DtExpandableSectionModule,
+    DtCheckboxModule,
     PipesModule,
     DesignTokensUiInputModule,
-    DesignTokensUiEasingSettingsModule,
   ],
-  declarations: [ThemeDetailComponent, ColorPickerComponent],
+  declarations: [
+    ThemeDetailComponent,
+    ColorPickerComponent,
+    PaletteSettingsComponent,
+    ThemeSettingsComponent,
+    SharedGenerationSettingsComponent,
+    DistributionCurveComponent,
+    EasingSettingsComponent,
+    EasingTypeSelectComponent,
+  ],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class ThemeDetailModule {}

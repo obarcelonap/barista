@@ -4095,41 +4095,6 @@
         }
       }
     },
-    "design-tokens-ui-easing-settings": {
-      "projectType": "library",
-      "root": "libs/design-tokens-ui/easing-settings",
-      "sourceRoot": "libs/design-tokens-ui/easing-settings/src",
-      "prefix": "design-tokens-ui",
-      "architect": {
-        "lint": {
-          "builder": "@angular-devkit/build-angular:tslint",
-          "options": {
-            "tsConfig": [
-              "libs/design-tokens-ui/easing-settings/tsconfig.lib.json",
-              "libs/design-tokens-ui/easing-settings/tsconfig.spec.json"
-            ],
-            "exclude": [
-              "**/node_modules/**",
-              "!libs/design-tokens-ui/easing-settings/**"
-            ]
-          }
-        },
-        "test": {
-          "builder": "@nrwl/jest:jest",
-          "options": {
-            "jestConfig": "libs/design-tokens-ui/easing-settings/jest.config.js",
-            "tsConfig": "libs/design-tokens-ui/easing-settings/tsconfig.spec.json",
-            "passWithNoTests": true,
-            "setupFile": "libs/design-tokens-ui/easing-settings/src/test-setup.ts"
-          }
-        }
-      },
-      "schematics": {
-        "@nrwl/angular:component": {
-          "style": "scss"
-        }
-      }
-    },
     "design-tokens-ui-shared": {
       "projectType": "library",
       "root": "libs/design-tokens-ui/shared",

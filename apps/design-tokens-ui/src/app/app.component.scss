@@ -27,17 +27,8 @@
   background: linear-gradient(
     90deg,
     var(--color-neutral-50) 0%,
-    var(--color-background) 20%
+    var(--color-background) 15%
   );
-}
-
-.design-tokens-ui-top-bar {
-  padding: $fluid-spacing--medium;
-  height: $top-bar-navigation-height;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
 }
 
 .design-tokens-ui-nav {
@@ -48,14 +39,6 @@
 
 .design-tokens-ui-main {
   padding: 0 $fluid-spacing--large 0 132px;
-  height: calc(100vh - #{$top-bar-navigation-height});
+  height: 100vh;
   overflow: auto;
-}
-
-.design-tokens-ui-theme-switcher {
-  display: inline-block;
-  font-size: $fluid-spacing--medium;
-  margin-bottom: $fluid-spacing--2x-small;
-  margin-right: $fluid-spacing--x-small;
-  color: var(--color-neutral-140);
 }

@@ -15,6 +15,8 @@
  */
 
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { getTextColorOnBackground } from '../../../../utils/colors';
+
 @Component({
   selector: 'design-tokens-ui-color-picker',
   templateUrl: './color-picker.component.html',
@@ -26,4 +28,9 @@ export class ColorPickerComponent {
 
   /** Invoked when the color has changed */
   @Output() colorChange: EventEmitter<string> = new EventEmitter<string>();
+
+  /** @internal */
+  get _iconColor(): string {
+    return getTextColorOnBackground(this.color);
+  }
 }

@@ -15,91 +15,256 @@
  */
 
 import { Injectable } from '@angular/core';
+import { cloneDeep, flatMap, isEqual } from 'lodash-es';
+import { BehaviorSubject, Observable, combineLatest } from 'rxjs';
+import { map, take, first } from 'rxjs/operators';
+import { stringify } from 'yaml';
 
 import * as paletteSource from '@dynatrace/fluid-design-tokens-meta/aliases/palette-source.alias';
+import { THEMES } from '@dynatrace/fluid-design-tokens';
 import {
   FluidPaletteSourceAlias,
   FluidPaletteSource,
+  FluidPaletteGenerationOptions,
 } from '@dynatrace/shared/barista-definitions';
-import { cloneDeep } from 'lodash-es';
-import { stringify } from 'yaml';
+import {
+  Theme,
+  Palette,
+  easeWithOptions,
+  remapRange,
+} from '@dynatrace/design-tokens-ui/shared';
+import { StyleOverridesService } from '../style-overrides';
+import { StateSnapshotStack } from '../../utils/state-snapshot-stack';
+import { generatePaletteContrastColors } from '../../utils/colors';
 
 const LEONARDO_BASE_URL = 'https://leonardocolor.io/';
 const YAML_FILE_NAME = 'palette-source.alias.yml';
 
+interface State {
+  themes: Theme[];
+}
+
 @Injectable()
 export class PaletteSourceService {
-  private _paletteSource: FluidPaletteSource;
+  private _stateSnapshots: StateSnapshotStack<State>;
 
-  constructor() {
+  state$ = new BehaviorSubject<State>({ themes: [] });
+
+  themes$ = this.state$.pipe(map((state) => state.themes));
+
+  constructor(private _styleOverridesService: StyleOverridesService) {
     // Deep copy the palette source to avoid mutating the imported object
-    this._paletteSource = cloneDeep(
+    const palettes = cloneDeep(
       (paletteSource as any).default,
     ) as FluidPaletteSource;
-  }
+    const themeNames = Object.keys(THEMES).map((uppercaseName) =>
+      uppercaseName.toLowerCase(),
+    );
 
-  /** Returns all palette source aliases */
-  getAllPaletteAliases(): FluidPaletteSourceAlias[] {
-    return cloneDeep(this._paletteSource.aliases);
-  }
+    const initialState = {
+      themes: themeNames.map((themeName) => ({
+        name: themeName,
+        globalGenerationOptions: palettes.meta
+          ? palettes.meta[themeName]?.generationOptions
+          : undefined,
+        palettes: palettes.aliases
+          .filter((palette) => palette.theme === themeName)
+          .map((palette) => ({
+            name: palette.name,
+            tokenData: {
+              ...palette,
+              generationOptions: palette.generationOptions?.globalType
+                ? undefined
+                : palette.generationOptions,
+            },
+            generatedColors: [],
+          })),
+      })),
+    };
 
-  /** Returns all palette source aliases grouped by theme */
-  getPaletteAliasesGroupedByTheme(): Map<string, FluidPaletteSourceAlias[]> {
-    return cloneDeep(this._paletteSource.aliases).reduce((map, alias) => {
-      if (map.has(alias.theme)) {
-        map.get(alias.theme)!.push(alias);
-      } else {
-        map.set(alias.theme, [alias]);
+    this.setState(initialState);
+    this._stateSnapshots = new StateSnapshotStack(this.state$);
+
+    window.addEventListener('beforeunload', (event) => {
+      if (this.hasPendingChanges) {
+        event.preventDefault();
+        event.returnValue = '';
       }
-      return map;
-    }, new Map<string, FluidPaletteSourceAlias[]>());
+    });
   }
 
-  /** Returns all palette source aliases that belong to the given theme */
-  getPaletteAliasesForTheme(theme: string): FluidPaletteSourceAlias[] {
-    return this._paletteSource.aliases.filter((alias) => alias.theme === theme);
+  setState(newState: State): void {
+    if (!isEqual(newState, this.state$.getValue())) {
+      this.state$.next(newState);
+    }
   }
 
-  /** Returns a palette source alias by name */
-  getPaletteAlias(
-    theme: string,
-    name: string,
-  ): FluidPaletteSourceAlias | undefined {
-    return cloneDeep(
-      this._paletteSource.aliases.find(
-        (alias) => alias.name === name && alias.theme === theme,
+  pushState(): void {
+    this._stateSnapshots.pushState();
+  }
+
+  applyChanges(): void {
+    this._stateSnapshots.commitState();
+  }
+
+  revertChanges(): void {
+    this._stateSnapshots.revertState();
+  }
+
+  get hasPendingChanges(): boolean {
+    // To check for changes between the current and the saved state,
+    // we need to get rid of the generated colors in the palettes since
+    // they are lazily generated when displaying the page
+    return this._stateSnapshots.checkStateModified((state) => ({
+      ...state,
+      themes: state.themes.map((theme) => ({
+        ...theme,
+        palettes: theme.palettes.map((palette) => ({
+          name: palette.name,
+          tokenData: palette.tokenData,
+        })),
+      })),
+    }));
+  }
+
+  getTheme(name: string): Observable<Theme | undefined> {
+    return this.themes$.pipe(
+      map((themes) => themes.find((theme) => theme.name === name)),
+    );
+  }
+
+  getPalette(
+    themeName: string,
+    paletteName: string,
+  ): Observable<Palette | undefined> {
+    return this.getTheme(themeName).pipe(
+      map((theme) =>
+        theme?.palettes.find((palette) => palette.name === paletteName),
       ),
     );
   }
 
-  /** Overwrites the saved palette with the given name with another palette */
-  setPaletteAlias(
-    theme: string,
-    name: string,
-    newAlias: FluidPaletteSourceAlias,
+  modifyTheme(themeName: string, changeFn: (theme: Theme) => Theme): void {
+    const state = this.state$.getValue();
+    this.state$.next({
+      ...state,
+      themes: [
+        ...state.themes.map((theme) =>
+          theme.name === themeName ? changeFn(theme) : theme,
+        ),
+      ],
+    });
+  }
+
+  modifyPalette(
+    themeName: string,
+    paletteName: string,
+    changeFn: (palette: Palette) => Palette,
   ): void {
-    let index = this._paletteSource.aliases.findIndex(
-      (alias) => alias.name === name && alias.theme === theme,
-    );
-    if (index !== -1) {
-      this._paletteSource.aliases[index] = newAlias;
+    this.modifyTheme(themeName, (theme) => ({
+      ...theme,
+      palettes: [
+        ...theme.palettes.map((palette) =>
+          palette.name === paletteName ? changeFn(palette) : palette,
+        ),
+      ],
+    }));
+  }
 
-      // Handle the case if we ended up with duplicate names
-      this._ensureUniqueAliasName(newAlias, false);
+  async regeneratePaletteColors(
+    themeName: string,
+    paletteName: string,
+    recalculateDistributions: boolean,
+  ): Promise<void> {
+    const [currentPalette, currentTheme] = await combineLatest(
+      this.getPalette(themeName, paletteName),
+      this.getTheme(themeName),
+    )
+      .pipe(take(1))
+      .toPromise();
+
+    if (!currentPalette || !currentTheme) return;
+
+    let tokenData = { ...currentPalette.tokenData };
+    if (recalculateDistributions) {
+      const distributions = await this.calculateDistributions(
+        currentPalette,
+        currentPalette.tokenData.generationOptions! ??
+          currentTheme.globalGenerationOptions,
+      );
+      tokenData.shades = tokenData.shades.map((shade, index) => ({
+        ...shade,
+        ratio: distributions[index],
+      }));
     }
+
+    this.modifyPalette(themeName, paletteName, (palette) => ({
+      ...palette,
+      generatedColors: generatePaletteContrastColors(tokenData),
+      tokenData,
+    }));
   }
 
-  /** Adds a new palette alias */
-  addPaletteAlias(newAlias: FluidPaletteSourceAlias): void {
-    this._ensureUniqueAliasName(newAlias, true);
-    this._paletteSource.aliases.push(newAlias);
+  async calculateDistributions(
+    palette: Palette,
+    generationOptions: FluidPaletteGenerationOptions,
+  ): Promise<number[]> {
+    const { baseContrast, minContrast, maxContrast } = generationOptions;
+    const distributionCount = palette.tokenData.shades.length;
+
+    return new Array(distributionCount)
+      .fill(0)
+      .map((_, index) => index / (distributionCount - 1)) // Normalized distribution
+      .map((normDistribution) =>
+        easeWithOptions(normDistribution, generationOptions),
+      ) // Apply easing to distribution
+      .map((distributionWithEasing) =>
+        distributionWithEasing < 0.5
+          ? remapRange(
+              0,
+              0.5,
+              minContrast,
+              baseContrast,
+              distributionWithEasing,
+            )
+          : remapRange(
+              0.5,
+              1,
+              baseContrast,
+              maxContrast,
+              distributionWithEasing,
+            ),
+      ) // Distribution value in [min, max] range. The base contrast is in the middle.
+      .map((value) => Math.round(value * 100) / 100); // Round to two digits
   }
 
-  /** Deletes the palette alias with the given name. */
-  deletePaletteAlias(name: string): void {
-    this._paletteSource.aliases = this._paletteSource.aliases.filter(
-      (alias) => alias.name !== name,
-    );
+  async overrideStylesForTheme(themeName: string): Promise<void> {
+    const theme = await this.getTheme(themeName).pipe(first()).toPromise();
+    if (!theme) return;
+
+    for (const palette of theme.palettes) {
+      for (let i = 0; i < palette.tokenData.shades.length; i++) {
+        const shade = palette.tokenData.shades[i];
+        const generatedColor = palette.generatedColors[i];
+        const colorPropName = shade.aliasName.replace(
+          `color-${theme.name}-`,
+          '',
+        );
+
+        if (generatedColor) {
+          this._styleOverridesService.addColorOverride(
+            theme.name,
+            colorPropName,
+            palette.generatedColors[i],
+          );
+        } else {
+          this._styleOverridesService.removeColorOverride(
+            theme.name,
+            colorPropName,
+          );
+        }
+      }
+    }
   }
 
   /** Returns the first key color for the given palette */
@@ -110,26 +275,62 @@ export class PaletteSourceService {
   }
 
   /** Returns an Adobe Leonardo URL the given palette */
-  getLeonardoUrl(palette: FluidPaletteSourceAlias): string {
+  getLeonardoUrl(palette: Palette): string {
     const urlParams = new URLSearchParams();
-    urlParams.set('colorKeys', this.getKeyColor(palette));
-    urlParams.set('base', palette.baseColor.substring(1)); // Get rid of the '#' sign
-    urlParams.set('mode', palette.colorspace);
+    urlParams.set('colorKeys', this.getKeyColor(palette.tokenData));
+    urlParams.set('base', palette.tokenData.baseColor.substring(1)); // Get rid of the '#' sign
+    urlParams.set('mode', palette.tokenData.colorspace);
     urlParams.set(
       'ratios',
-      palette.shades.map((shade) => shade.ratio).join(','),
+      palette.tokenData.shades.map((shade) => shade.ratio).join(','),
     );
     return `${LEONARDO_BASE_URL}?${urlParams.toString()}`;
   }
 
   /** Exports all palettes as a YAML file */
-  exportYaml(): void {
-    const yaml = stringify(this._paletteSource);
+  async exportYaml(): Promise<void> {
+    const themes = await this.themes$.pipe(first()).toPromise();
+
+    const themeGenerationOptions = new Map<
+      string,
+      FluidPaletteGenerationOptions
+    >();
+    for (const theme of themes.filter(() => theme.globalGenerationOptions)) {
+      themeGenerationOptions.set(theme.name, {
+        ...theme.globalGenerationOptions,
+        globalType: true,
+      } as FluidPaletteGenerationOptions);
+    }
+
+    const meta = themes
+      .filter((filter) => filter.globalGenerationOptions)
+      .reduce((object, theme) => {
+        object[theme.name] = {
+          generationOptions: themeGenerationOptions.get(theme.name),
+        };
+        return object;
+      }, {});
+
+    const aliases = flatMap(themes, (theme) =>
+      theme.palettes.map((palette) => [palette, theme]),
+    ).map(([palette, theme]: [Palette, Theme]) => ({
+      ...palette.tokenData,
+
+      // Reference the theme's generation options if they're not overwritten
+      generationOptions: palette.tokenData.generationOptions
+        ? palette.tokenData.generationOptions
+        : themeGenerationOptions.get(theme.name),
+    }));
+
+    const yaml = stringify({
+      meta,
+      aliases,
+    });
 
     const element = document.createElement('a');
     element.setAttribute(
       'href',
-      'data:text/plain;charset=utf-8,' + encodeURIComponent(yaml),
+      `data:text/plain;charset=utf-8,${encodeURIComponent(yaml)}`,
     );
     element.setAttribute('download', YAML_FILE_NAME);
 
@@ -139,18 +340,5 @@ export class PaletteSourceService {
     element.click();
 
     document.body.removeChild(element);
-  }
-
-  /** Adds a suffix to the palette name if necessary to keep the identifiers unique */
-  private _ensureUniqueAliasName(
-    alias: FluidPaletteSourceAlias,
-    isNew: boolean,
-  ): void {
-    while (
-      this._paletteSource.aliases.filter((a) => a.name === alias.name).length >
-      (isNew ? 0 : 1)
-    ) {
-      alias.name += '-2';
-    }
   }
 }

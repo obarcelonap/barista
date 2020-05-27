@@ -14,41 +14,44 @@
  * limitations under the License.
  */
 
-import { Component, OnDestroy, HostBinding } from '@angular/core';
-import { Location } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
-import { DomSanitizer, SafeStyle } from '@angular/platform-browser';
-import { FluidPaletteSourceAlias } from '@dynatrace/shared/barista-definitions';
+import { Component, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+
+import { Subject, Observable } from 'rxjs';
+import {
+  takeUntil,
+  switchMap,
+  filter,
+  first,
+  share,
+  distinctUntilKeyChanged,
+  debounceTime,
+  distinctUntilChanged,
+} from 'rxjs/operators';
+import { uniq, isEqual } from 'lodash-es';
 
 import { PaletteSourceService } from '../../services/palette';
+import { getTextColorOnBackground } from '../../utils/colors';
 import {
-  generatePaletteContrastColors,
-  getTextColorOnBackground,
-} from '../../utils/colors';
-import { takeUntil } from 'rxjs/operators';
-import { Subject } from 'rxjs';
-import { DEFAULT_GENERATION_OPTIONS } from '@dynatrace/design-tokens-ui/shared';
+  DEFAULT_GENERATION_OPTIONS,
+  Theme,
+} from '@dynatrace/design-tokens-ui/shared';
 
 @Component({
   selector: 'design-tokens-ui-palette-detail',
   templateUrl: './theme-detail.component.html',
   styleUrls: ['./theme-detail.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThemeDetailComponent implements OnDestroy {
   /** @internal maximum contrast ratio supported by Leonardo */
   readonly _maxRatio = 21;
 
-  // TODO: remove
-  _palette: FluidPaletteSourceAlias;
+  /** All palettes belonging to the current theme */
+  _themeName: string = '';
 
   /** All palettes belonging to the current theme */
-  _themePalettes: FluidPaletteSourceAlias[];
-
-  /** Generated contrast colors for all themes */
-  _contrastColors: string[][];
-
-  /** @internal Identifier of the current theme */
-  _themeName: string;
+  _theme$: Observable<Theme>;
 
   /** @internal the user must click the delete button twice to confirm */
   _showDeletePaletteConfirmation = false;
@@ -60,91 +63,71 @@ export class ThemeDetailComponent implements OnDestroy {
 
   constructor(
     private _paletteSourceService: PaletteSourceService,
-    private _location: Location,
-    private _sanitizer: DomSanitizer,
+    private _router: Router,
     route: ActivatedRoute,
   ) {
-    route.params.pipe(takeUntil(this._destroy$)).subscribe((params) => {
-      this._themeName = params.theme;
-      this._themePalettes = _paletteSourceService.getPaletteAliasesForTheme(
-        this._themeName,
-      );
-      this._palette = _paletteSourceService.getPaletteAlias(
-        this._themeName,
-        'neutral',
-      )!;
+    this._theme$ = route.params.pipe(
+      switchMap((params) => _paletteSourceService.getTheme(params.theme)),
+      takeUntil(this._destroy$),
+      filter(Boolean),
+    ) as Observable<Theme>;
 
-      if (!this._palette.generationOptions) {
-        // Easing options might not be available initially
-        this._palette.generationOptions = { ...DEFAULT_GENERATION_OPTIONS };
-      }
-      this._calculateContrastColors();
-    });
+    this._theme$
+      .pipe(share(), takeUntil(this._destroy$), distinctUntilKeyChanged('name'))
+      .subscribe((theme) => {
+        this._themeName = theme.name;
+      });
+
+    this._theme$
+      .pipe(
+        share(),
+        takeUntil(this._destroy$),
+        distinctUntilChanged((prev, curr) =>
+          this._canSkipPaletteGeneration(prev, curr),
+        ),
+        debounceTime(200),
+      )
+      .subscribe(() => {
+        this._regeneratePaletteColors();
+      });
+
+    this._theme$
+      .pipe(
+        share(),
+        takeUntil(this._destroy$),
+        distinctUntilKeyChanged('palettes'),
+        debounceTime(200),
+      )
+      .subscribe(() => {
+        this._paletteSourceService.overrideStylesForTheme(this._themeName);
+      });
   }
 
   ngOnDestroy(): void {
-    // Save edited palette on destroy using the original name
-    this._paletteSourceService.setPaletteAlias(
-      this._themeName,
-      'neutral',
-      this._palette,
-    );
-
     this._destroy$.next();
     this._destroy$.complete();
   }
 
-  @HostBinding('style')
-  get style(): SafeStyle {
-    // TODO: replace with new shades when naming scheme is implemented
-    return this._sanitizer.bypassSecurityTrustStyle(
-      `--color: ${this.getGeneratedContrastShade(this._themePalettes[0], 0)};
-       --color-dark: ${this.getGeneratedContrastShade(
-         this._themePalettes[0],
-         1,
-       )};
-       --color-darker: ${this.getGeneratedContrastShade(
-         this._themePalettes[0],
-         2,
-       )};`,
-    );
-  }
-
-  /** The main color the palette is based on */
-  get keyColor(): string {
-    if (!this._palette) {
-      return 'white';
-    }
-    return this._paletteSourceService.getKeyColor(this._palette);
-  }
-
-  set keyColor(color: string) {
-    this._palette.keyColor = color;
-  }
-
-  /** @internal Recalculate the contrast colors */
-  _calculateContrastColors(): void {
-    this._contrastColors = this._themePalettes.map((palette) =>
-      generatePaletteContrastColors(palette),
-    );
-  }
-
   /** @internal */
-  _deletePalette(): void {
-    if (!this._showDeletePaletteConfirmation) {
-      // Confirm deletion
-      this._showDeletePaletteConfirmation = true;
-      return;
-    }
-
-    // The button was clicked a second time, so we can delete now
-    this._paletteSourceService.deletePaletteAlias(this._palette.name);
-    this._location.back();
+  _createGenerationOptions(): void {
+    this._paletteSourceService.modifyTheme(this._themeName, (theme) => ({
+      ...theme,
+      globalGenerationOptions: { ...DEFAULT_GENERATION_OPTIONS },
+    }));
   }
 
-  /** @internal */
-  _resetDeletePaletteConfirmation(): void {
-    this._showDeletePaletteConfirmation = false;
+  async _regeneratePaletteColors(): Promise<void> {
+    this._theme$
+      .pipe(first(), filter(Boolean))
+      .subscribe(async (theme: Theme) => {
+        for (const palette of theme.palettes) {
+          await this._paletteSourceService.regeneratePaletteColors(
+            this._themeName,
+            palette.name,
+            !!theme.globalGenerationOptions,
+          );
+        }
+      });
   }
 
   /** @internal */
@@ -152,59 +135,23 @@ export class ThemeDetailComponent implements OnDestroy {
     this._showGaps = !this._showGaps;
   }
 
-  /** @internal Change detection workaround for interpolation options */
-  _setGenerationOption(option: string, value: any): void {
-    // Make sure that numeric strings get converted to actual numbers
-    const numericValue = parseFloat(value);
-    const convertedValue = isNaN(numericValue) ? value : numericValue;
-
-    const newOptions = { ...this._palette.generationOptions };
-    newOptions[option] = convertedValue;
-    if (newOptions.lowerExponent > 0 && newOptions.upperExponent > 0) {
-      this._palette.generationOptions = newOptions;
-      this._calculateContrastColors();
-    }
-  }
-
-  /** @internal Applies shade distributions from curve output */
-  _distributionsChanged(distributions: number[]): void {
-    this._palette.shades = distributions.map((ratio, index) => {
-      const { name, comment, aliasName } = this._palette.shades[index];
-      return {
-        name,
-        ratio,
-        comment,
-        aliasName,
-      };
-    });
-    this._calculateContrastColors();
-  }
-
   /** @internal */
   _getTextColorOnBackground(color: string): string {
     return getTextColorOnBackground(color);
   }
 
-  /**
-   * @internal Retrieve a contast shade relative to the base color
-   * @param shadeRelativeToBase zero for the base shade a negative or positive number
-   * for a lower or higher contrast compared to the base shade
-   */
-  getGeneratedContrastShade(
-    palette: FluidPaletteSourceAlias,
-    shadeRelativeToBase: number,
-  ): string {
-    const paletteContrastColors = this._contrastColors[
-      this._themePalettes.indexOf(palette)
-    ];
-
-    // The base shade is located at the middle
-    const baseShadeIndex = Math.floor(paletteContrastColors.length / 2);
-    return paletteContrastColors[baseShadeIndex + shadeRelativeToBase];
+  _saveChanges(): void {
+    this._paletteSourceService.applyChanges();
+    this._router.navigate(['/theme']);
   }
 
-  /** @internal Adobe Leonardo URL for the current color palette */
-  get leonardoUrl(): string {
-    return this._paletteSourceService.getLeonardoUrl(this._palette);
+  private _canSkipPaletteGeneration(prev: Theme, curr: Theme): boolean {
+    const distinctBaseColors = (theme: Theme) =>
+      uniq(theme.palettes.map((palette) => palette.tokenData.baseColor));
+
+    return (
+      prev.globalGenerationOptions === curr.globalGenerationOptions &&
+      isEqual(distinctBaseColors(prev), distinctBaseColors(curr))
+    );
   }
 }

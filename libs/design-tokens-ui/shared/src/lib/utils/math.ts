@@ -14,13 +14,27 @@
  * limitations under the License.
  */
 
-// Easing functions
+// Easing functions (see https://easings.net)
 export const easeIn = (t: number, exponent: number = 2) =>
   Math.pow(t, exponent);
 export const easeOut = (t: number, exponent: number = 2) =>
   1 - Math.pow(1 - t, exponent);
-export const easeInOut = (t: number, alpha: number = 2) =>
-  (t * t) / (alpha * (t * t - t) + 1);
+export const easeInOutQuad = (x: number) =>
+  x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+export const easeInOutCubic = (x: number) =>
+  x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+export const easeInExpo = (x: number) =>
+  x === 0 ? 0 : Math.pow(2, 10 * x - 10);
+export const easeOutExpo = (x: number) =>
+  x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+export const easeInOutExpo = (x: number) =>
+  x === 0
+    ? 0
+    : x === 1
+    ? 1
+    : x < 0.5
+    ? Math.pow(2, 20 * x - 10) / 2
+    : (2 - Math.pow(2, -20 * x + 10)) / 2;
 
 /** Linear interpolation from a to b using normalized factor t */
 export function lerp(min: number, max: number, t: number): number {
